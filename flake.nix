@@ -1,5 +1,5 @@
 {
-  description = "Reusable agent infrastructure";
+  description = "Reusable autonomous agent infrastructure";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -12,15 +12,15 @@
         name,
         repoUrl,
         secretsFile,
+        enableClaude ? false,
         extraPackages ? _: [],
       }:
         flake-utils.lib.eachDefaultSystem (system:
           let
             pkgs = import nixpkgs {
               inherit system;
-              config.allowUnfreePredicate = pkg: builtins.elem (nixpkgs.lib.getName pkg) [
-                "claude-code"
-              ];
+              config.allowUnfreePredicate = pkg:
+                enableClaude && builtins.elem (nixpkgs.lib.getName pkg) [ "claude-code" ];
             };
 
             # Wrapper that refreshes Claude credentials in secrets.yaml after token refresh
@@ -70,20 +70,12 @@
             '';
 
             # Dev packages
-            devPackages = with pkgs; [ git sops age jq claude-code ];
+            devPackages = with pkgs; [ git sops age jq ]
+              ++ pkgs.lib.optionals enableClaude [ pkgs.claude-code claudeSetup ];
 
             # Production packages (full set for docker)
-            prodPackages = with pkgs; [
-              bash
-              coreutils
-              git
-              curl
-              age
-              sops
-              cacert
-              jq
-              claudeWrapper
-            ];
+            prodPackages = with pkgs; [ bash coreutils git curl age sops cacert jq ]
+              ++ pkgs.lib.optionals enableClaude [ claudeWrapper ];
 
             # Docker entrypoint: decrypt secrets -> setup home from repo -> bash
             dockerEntrypoint = pkgs.writeShellScript "entrypoint" ''
@@ -107,6 +99,7 @@
               git -C "$HOME" fetch origin
               git -C "$HOME" checkout -f main
 
+              ${pkgs.lib.optionalString enableClaude ''
               # Decrypt Claude credentials from repo
               if [ -f "$HOME/claude-credentials.yaml" ]; then
                 mkdir -p "$HOME/.claude"
@@ -114,6 +107,7 @@
                   > "$HOME/.claude/.credentials.json"
                 chmod 600 "$HOME/.claude/.credentials.json"
               fi
+              ''}
 
               exec ${pkgs.bash}/bin/bash
             '';
@@ -122,7 +116,7 @@
           in
           {
             devShells.default = pkgs.mkShell {
-              packages = devPackages ++ [ claudeSetup ] ++ extra;
+              packages = devPackages ++ extra;
             };
 
             packages.docker = pkgs.dockerTools.buildImage {
