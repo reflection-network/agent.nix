@@ -46,6 +46,19 @@
                 git -C "$HOME" push
               fi
 
+              # Commit all changes to run branch
+              git -C "$HOME" add -A
+              if ! git -C "$HOME" diff --cached --quiet; then
+                git -C "$HOME" commit -m "chore: update agent state"
+                git -C "$HOME" push -u origin "$AGENT_BRANCH"
+
+                # Merge into main, stay on branch
+                git -C "$HOME" checkout main
+                git -C "$HOME" merge "$AGENT_BRANCH" -m "merge: $AGENT_BRANCH" || true
+                git -C "$HOME" push origin main || true
+                git -C "$HOME" checkout "$AGENT_BRANCH"
+              fi
+
               exit $EXIT_CODE
             '';
 
@@ -69,6 +82,19 @@
                 git -C "$HOME" add opencode-credentials.yaml
                 git -C "$HOME" commit -m "chore: refresh OpenCode credentials"
                 git -C "$HOME" push
+              fi
+
+              # Commit all changes to run branch
+              git -C "$HOME" add -A
+              if ! git -C "$HOME" diff --cached --quiet; then
+                git -C "$HOME" commit -m "chore: update agent state"
+                git -C "$HOME" push -u origin "$AGENT_BRANCH"
+
+                # Merge into main, stay on branch
+                git -C "$HOME" checkout main
+                git -C "$HOME" merge "$AGENT_BRANCH" -m "merge: $AGENT_BRANCH" || true
+                git -C "$HOME" push origin main || true
+                git -C "$HOME" checkout "$AGENT_BRANCH"
               fi
 
               exit $EXIT_CODE
@@ -147,6 +173,20 @@
               git -C "$HOME" remote add origin "$REPO_URL"
               git -C "$HOME" fetch origin
               git -C "$HOME" checkout -f main
+
+              # Create .gitignore for runtime-only files
+              cat > "$HOME/.gitignore" <<GITIGNORE
+              .claude/.credentials.json
+              .netrc
+              GITIGNORE
+
+              git -C "$HOME" add .gitignore
+              git -C "$HOME" diff --cached --quiet || git -C "$HOME" commit -m "chore: add .gitignore"
+
+              # Create and checkout a run branch
+              BRANCH="run/$(date +%Y-%m-%d-%H%M%S)"
+              git -C "$HOME" checkout -b "$BRANCH"
+              export AGENT_BRANCH="$BRANCH"
 
               ${pkgs.lib.optionalString enableClaude ''
               # Decrypt Claude credentials from repo
