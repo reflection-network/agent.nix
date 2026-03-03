@@ -14,6 +14,7 @@ Reusable Nix flake for autonomous agent infrastructure. Provides `lib.mkAgent` â
       repoUrl = "https://github.com/org/my-agent";
       secretsFile = ./secrets.yaml;
       enableClaude = true;
+      enableOpencode = true;
     };
 }
 ```
@@ -26,6 +27,7 @@ Reusable Nix flake for autonomous agent infrastructure. Provides `lib.mkAgent` â
 | `repoUrl` | string | yes | â€” | URL of the agent's repo. Baked into docker entrypoint. |
 | `secretsFile` | path | yes | â€” | Path to sops-encrypted secrets file. Baked into docker image at `/app/secrets.yaml`. |
 | `enableClaude` | bool | no | `false` | Include Claude Code CLI, credential wrapper, and `claude-setup` dev tool. |
+| `enableOpencode` | bool | no | `false` | Include OpenCode CLI, credential wrapper, and `opencode-setup` dev tool. |
 | `extraPackages` | function | no | `_: []` | Function `pkgs -> [derivation]`. Additional packages added to both devShell and docker image. |
 
 ## Outputs
@@ -49,6 +51,14 @@ When `true`, adds:
 - **devShell**: `claude-code`, `claude-setup` (interactive login tool that saves encrypted credentials)
 - **docker**: `claude` wrapper that auto-encrypts and pushes credential updates after token refresh
 - **entrypoint**: decrypts `claude-credentials.yaml` from the repo into `~/.claude/.credentials.json`
+
+## enableOpencode
+
+When `true`, adds:
+
+- **devShell**: `opencode`, `opencode-setup` (interactive login tool that saves encrypted credentials)
+- **docker**: `opencode` wrapper that auto-encrypts and pushes credential updates after token refresh
+- **entrypoint**: decrypts `opencode-credentials.yaml` from the repo into `~/.local/share/opencode/auth.json`
 
 ## Docker image
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `enableOpencode` — opt-in OpenCode support (wrapper, setup tool, credential decryption)
+
 ## v0.1.0
 
 Initial release.

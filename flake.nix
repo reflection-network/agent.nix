@@ -13,6 +13,7 @@
         repoUrl,
         secretsFile,
         enableClaude ? false,
+        enableOpencode ? false,
         extraPackages ? _: [],
       }:
         flake-utils.lib.eachDefaultSystem (system:
@@ -48,6 +49,52 @@
               exit $EXIT_CODE
             '';
 
+            # Wrapper that refreshes OpenCode credentials in secrets.yaml after token refresh
+            opencodeWrapper = pkgs.writeShellScriptBin "opencode" ''
+              CREDS_FILE="$HOME/.local/share/opencode/auth.json"
+              SECRETS_FILE="$HOME/secrets.yaml"
+
+              BEFORE=$(sha256sum "$CREDS_FILE" 2>/dev/null | cut -d' ' -f1)
+
+              ${pkgs.opencode}/bin/opencode "$@"
+              EXIT_CODE=$?
+
+              AFTER=$(sha256sum "$CREDS_FILE" 2>/dev/null | cut -d' ' -f1)
+
+              CREDS_ENCRYPTED="$HOME/opencode-credentials.yaml"
+              if [ "$BEFORE" != "$AFTER" ] && [ -f "$CREDS_ENCRYPTED" ]; then
+                CREDS=$(${pkgs.jq}/bin/jq -c . "$CREDS_FILE")
+                echo "OPENCODE_CREDENTIALS: '$CREDS'" > "$CREDS_ENCRYPTED"
+                ${pkgs.sops}/bin/sops -e -i "$CREDS_ENCRYPTED"
+                git -C "$HOME" add opencode-credentials.yaml
+                git -C "$HOME" commit -m "chore: refresh OpenCode credentials"
+                git -C "$HOME" push
+              fi
+
+              exit $EXIT_CODE
+            '';
+
+            # Dev tool: run opencode auth login in temp home, save credentials to opencode-credentials.yaml
+            opencodeSetup = pkgs.writeShellScriptBin "opencode-setup" ''
+              TMPHOME=$(mktemp -d)
+              trap "rm -rf $TMPHOME" EXIT
+
+              echo "Running opencode auth login with temporary home..."
+              HOME=$TMPHOME ${pkgs.opencode}/bin/opencode auth login
+
+              CREDS_FILE="$TMPHOME/.local/share/opencode/auth.json"
+              if [ ! -f "$CREDS_FILE" ]; then
+                echo "Error: credentials file not found after login"
+                exit 1
+              fi
+
+              CREDS=$(${pkgs.jq}/bin/jq -c . "$CREDS_FILE")
+              echo "OPENCODE_CREDENTIALS: '$CREDS'" > opencode-credentials.yaml
+              ${pkgs.sops}/bin/sops -e -i opencode-credentials.yaml
+
+              echo "OpenCode credentials saved to opencode-credentials.yaml"
+            '';
+
             # Dev tool: run claude login in temp home, save credentials to claude-credentials.yaml
             claudeSetup = pkgs.writeShellScriptBin "claude-setup" ''
               TMPHOME=$(mktemp -d)
@@ -71,11 +118,13 @@
 
             # Dev packages
             devPackages = with pkgs; [ git sops age jq ]
-              ++ pkgs.lib.optionals enableClaude [ pkgs.claude-code claudeSetup ];
+              ++ pkgs.lib.optionals enableClaude [ pkgs.claude-code claudeSetup ]
+              ++ pkgs.lib.optionals enableOpencode [ pkgs.opencode opencodeSetup ];
 
             # Production packages (full set for docker)
             prodPackages = with pkgs; [ bash coreutils git curl age sops cacert jq ]
-              ++ pkgs.lib.optionals enableClaude [ claudeWrapper ];
+              ++ pkgs.lib.optionals enableClaude [ claudeWrapper ]
+              ++ pkgs.lib.optionals enableOpencode [ opencodeWrapper ];
 
             # Docker entrypoint: decrypt secrets -> setup home from repo -> bash
             dockerEntrypoint = pkgs.writeShellScript "entrypoint" ''
@@ -106,6 +155,16 @@
                 ${pkgs.sops}/bin/sops -d --extract '["CLAUDE_CREDENTIALS"]' "$HOME/claude-credentials.yaml" \
                   > "$HOME/.claude/.credentials.json"
                 chmod 600 "$HOME/.claude/.credentials.json"
+              fi
+              ''}
+
+              ${pkgs.lib.optionalString enableOpencode ''
+              # Decrypt OpenCode credentials from repo
+              if [ -f "$HOME/opencode-credentials.yaml" ]; then
+                mkdir -p "$HOME/.local/share/opencode"
+                ${pkgs.sops}/bin/sops -d --extract '["OPENCODE_CREDENTIALS"]' "$HOME/opencode-credentials.yaml" \
+                  > "$HOME/.local/share/opencode/auth.json"
+                chmod 600 "$HOME/.local/share/opencode/auth.json"
               fi
               ''}
 
