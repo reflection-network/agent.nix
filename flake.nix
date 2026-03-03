@@ -229,7 +229,8 @@
                 })
               ];
               extraCommands = ''
-                mkdir -p home/agent app etc
+                mkdir -p home/agent app etc tmp
+                chmod 1777 tmp
 
                 echo "root:x:0:0:root:/root:/bin/sh" > etc/passwd
                 echo "agent:x:1000:1000:Agent:/home/agent:/bin/bash" >> etc/passwd
