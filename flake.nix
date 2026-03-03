@@ -11,9 +11,9 @@
       lib.mkAgent = {
         name,
         email,
-        secretsFile,
+        secretsFile ? ./secrets.yaml,
         system ? null,
-        extraPackages ? [],
+        extraPackages ? _: [],
       }:
         flake-utils.lib.eachDefaultSystem (sys:
           let
