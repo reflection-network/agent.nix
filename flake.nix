@@ -10,16 +10,14 @@
     {
       lib.mkAgent = {
         name,
-        email,
-        secretsFile ? ./secrets.yaml,
-        system ? null,
+        repoUrl,
+        secretsFile,
         extraPackages ? _: [],
       }:
-        flake-utils.lib.eachDefaultSystem (sys:
+        flake-utils.lib.eachDefaultSystem (system:
           let
-            effectiveSystem = if system != null then system else sys;
             pkgs = import nixpkgs {
-              system = effectiveSystem;
+              inherit system;
               config.allowUnfreePredicate = pkg: builtins.elem (nixpkgs.lib.getName pkg) [
                 "claude-code"
               ];
@@ -71,8 +69,11 @@
               echo "Claude credentials saved to claude-credentials.yaml"
             '';
 
-            # Base packages available to the agent
-            agentPackages = with pkgs; [
+            # Dev packages
+            devPackages = with pkgs; [ git sops age jq claude-code ];
+
+            # Production packages (full set for docker)
+            prodPackages = with pkgs; [
               bash
               coreutils
               git
@@ -88,16 +89,13 @@
             dockerEntrypoint = pkgs.writeShellScript "entrypoint" ''
               set -e
 
+              REPO_URL="${repoUrl}"
+
               export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
               export GIT_SSL_CAINFO=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
 
               # Decrypt secrets into environment
               eval $(${pkgs.sops}/bin/sops -d --output-type dotenv /app/secrets.yaml)
-
-              if [ -z "$REPO_URL" ]; then
-                echo "Error: REPO_URL is not set"
-                exit 1
-              fi
 
               echo "machine github.com login x-access-token password $GITHUB_TOKEN" > "$HOME/.netrc"
               chmod 600 "$HOME/.netrc"
@@ -120,11 +118,11 @@
               exec ${pkgs.bash}/bin/bash
             '';
 
-            allPackages = agentPackages ++ (extraPackages pkgs);
+            extra = extraPackages pkgs;
           in
           {
             devShells.default = pkgs.mkShell {
-              packages = allPackages ++ [ claudeSetup ];
+              packages = devPackages ++ [ claudeSetup ] ++ extra;
             };
 
             packages.docker = pkgs.dockerTools.buildImage {
@@ -133,7 +131,7 @@
               copyToRoot = [
                 (pkgs.buildEnv {
                   name = "root";
-                  paths = allPackages;
+                  paths = prodPackages ++ extra;
                   pathsToLink = [ "/bin" ];
                 })
               ];
