@@ -15,7 +15,21 @@
 
             cfg = agent;
 
+            # Helper: check optional field type
+            optString = field: !(cfg ? ${field}) || (builtins.isString cfg.${field} && cfg.${field} != "");
+            optBool = path:
+              let
+                val = builtins.foldl' (acc: k: if acc != null && acc ? ${k} then acc.${k} else null) cfg path;
+              in
+              val == null || builtins.isBool val;
+            optListOfStrings = path:
+              let
+                val = builtins.foldl' (acc: k: if acc != null && acc ? ${k} then acc.${k} else null) cfg path;
+              in
+              val == null || (builtins.isList val && builtins.all builtins.isString val);
+
             assertions = [
+              # required
               {
                 assertion = cfg ? name && builtins.isString cfg.name && cfg.name != "";
                 message = "agent.name must be a non-empty string";
@@ -23,6 +37,28 @@
               {
                 assertion = cfg ? system-prompt && builtins.isString cfg.system-prompt && cfg.system-prompt != "";
                 message = "agent.system-prompt must be a non-empty string";
+              }
+              # optional: provider / model
+              {
+                assertion = optString "provider";
+                message = "agent.provider must be a non-empty string when specified";
+              }
+              {
+                assertion = optString "model";
+                message = "agent.model must be a non-empty string when specified";
+              }
+              # optional: transports.telegram
+              {
+                assertion = optBool [ "transports" "telegram" "enable" ];
+                message = "agent.transports.telegram.enable must be a boolean when specified";
+              }
+              {
+                assertion = optListOfStrings [ "transports" "telegram" "allowed-users" ];
+                message = "agent.transports.telegram.allowed-users must be a list of strings when specified";
+              }
+              {
+                assertion = optBool [ "transports" "telegram" "mention-only" ];
+                message = "agent.transports.telegram.mention-only must be a boolean when specified";
               }
             ];
 
@@ -34,11 +70,15 @@
               else
                 true;
 
+            escPrompt = builtins.replaceStrings [''"'' "$"] [''\"'' "\\$"] cfg.system-prompt;
+
             agent-info = pkgs.writeShellScriptBin "agent-info" ''
               echo "name: ${cfg.name}"
+              ${if cfg ? provider then ''echo "provider: ${cfg.provider}"'' else ""}
+              ${if cfg ? model then ''echo "model: ${cfg.model}"'' else ""}
               echo ""
               echo "system prompt:"
-              echo "${builtins.replaceStrings [''"'' "$"] [''\"'' "\\$"] cfg.system-prompt}"
+              echo "${escPrompt}"
             '';
 
             etcFiles = pkgs.runCommand "etc-files" {} ''
